@@ -26,6 +26,7 @@ export default function GameRunner() {
     score: 0, combo: 0, maxCombo: 0, accuracy: 0, totalHits: 0, totalMisses: 0, level: 1,
     timeLeft: GAME_DURATION, isRunning: false, isPaused: false, isComplete: false, goalReached: false
   });
+  const gameStateRef = useRef(gameState);
   const [stars, setStars] = useState(0);
   const [showResult, setShowResult] = useState(false);
   const trainingMode = (location.state as any)?.trainingMode || 'monocular';
@@ -35,6 +36,10 @@ export default function GameRunner() {
 
   const targetScore = GAME_TARGET_SCORES[gameId || ''] || 300;
   const bgScene = BACKGROUND_SCENES.find(b => b.id === backgroundId) || BACKGROUND_SCENES[0];
+
+  useEffect(() => {
+    gameStateRef.current = gameState;
+  }, [gameState]);
 
   useEffect(() => {
     async function initGame() {
@@ -64,7 +69,8 @@ export default function GameRunner() {
     let timeAccumulator = 0;
     function gameLoop(currentTime: number) {
       const dt = (currentTime - lastTime) / 1000; lastTime = currentTime;
-      if (!gameState.isPaused && gameState.isRunning && !gameState.isComplete) {
+      const currentState = gameStateRef.current;
+      if (!currentState.isPaused && currentState.isRunning && !currentState.isComplete) {
         timeAccumulator += dt;
         setGameState(prev => {
           if (prev.score >= targetScore && !prev.goalReached) { triggerComplete(prev.score, true); return { ...prev, score: prev.score, goalReached: true, isComplete: true }; }
@@ -73,7 +79,7 @@ export default function GameRunner() {
           return { ...prev, timeLeft: newTime, level: Math.min(3, Math.floor((GAME_DURATION - newTime) / 60) + 1) };
         });
         updateGame(dt, ctx, canvas.offsetWidth, canvas.offsetHeight);
-        if (timeAccumulator > 1) { emitGameScore({ sessionId, score: gameState.score, accuracy: gameState.accuracy, combo: gameState.combo }); timeAccumulator = 0; }
+        if (timeAccumulator > 1) { emitGameScore({ sessionId, score: currentState.score, accuracy: currentState.accuracy, combo: currentState.combo }); timeAccumulator = 0; }
       }
       renderGame(ctx, canvas.offsetWidth, canvas.offsetHeight);
       animationRef.current = requestAnimationFrame(gameLoop);
@@ -84,8 +90,9 @@ export default function GameRunner() {
   }, [sessionId]);
 
   function triggerComplete(finalScore: number, goalReached: boolean) {
-    emitGameComplete({ sessionId, score: finalScore, duration: GAME_DURATION - gameState.timeLeft, accuracy: gameState.accuracy, comboMax: gameState.maxCombo, levelCompleted: gameState.level });
-    const acc = gameState.accuracy;
+    const currentState = gameStateRef.current;
+    emitGameComplete({ sessionId, score: finalScore, duration: GAME_DURATION - currentState.timeLeft, accuracy: currentState.accuracy, comboMax: currentState.maxCombo, levelCompleted: currentState.level });
+    const acc = currentState.accuracy;
     let s = goalReached ? (acc >= 90 ? 3 : acc >= 70 ? 2 : 2) : (acc >= 80 ? 2 : 1);
     setStars(s); setShowResult(true);
   }
@@ -184,21 +191,22 @@ export default function GameRunner() {
   }
 
   function renderHUD(ctx: CanvasRenderingContext2D, width: number, height: number) {
+    const currentState = gameStateRef.current;
     ctx.fillStyle = 'rgba(0,0,0,0.4)'; rRect(ctx, 12, 12, width - 24, 60, 16); ctx.fill();
     const game = GAMES.find(g => g.id === gameId);
     ctx.fillStyle = '#FFF'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(game?.name_cn || gameId || '', 24, 42);
-    ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(gameState.score + ' pts', width / 2, 42);
-    const mins = Math.floor(gameState.timeLeft / 60), secs = Math.floor(gameState.timeLeft % 60);
-    ctx.fillStyle = gameState.timeLeft < 30 ? '#FF6B6B' : '#FFF'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'right'; ctx.fillText(mins + ':' + String(secs).padStart(2, '0'), width - 180, 42);
-    const progress = Math.min(1, gameState.score / targetScore);
+    ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(currentState.score + ' pts', width / 2, 42);
+    const mins = Math.floor(currentState.timeLeft / 60), secs = Math.floor(currentState.timeLeft % 60);
+    ctx.fillStyle = currentState.timeLeft < 30 ? '#FF6B6B' : '#FFF'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'right'; ctx.fillText(mins + ':' + String(secs).padStart(2, '0'), width - 180, 42);
+    const progress = Math.min(1, currentState.score / targetScore);
     const barX = width - 170, barY = 34, barW = 130, barH = 16;
     ctx.fillStyle = 'rgba(255,255,255,0.2)'; rRect(ctx, barX, barY, barW, barH, 8); ctx.fill();
     const pColor = progress >= 1 ? '#48BB78' : progress >= 0.6 ? '#FFD700' : '#FF6B9D';
     ctx.fillStyle = pColor; if (progress > 0) { rRect(ctx, barX, barY, barW * progress, barH, 8); ctx.fill(); }
     ctx.fillStyle = '#FFF'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Goal:' + targetScore, barX + barW / 2, barY + barH / 2 + 1);
     ctx.fillStyle = 'rgba(0,0,0,0.4)'; rRect(ctx, 12, 80, 130, 40, 12); ctx.fill();
-    ctx.fillStyle = '#81C784'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'left'; ctx.fillText('Acc ' + gameState.accuracy + '%', 22, 100);
-    ctx.fillStyle = '#FFD700'; ctx.fillText('Combo ' + gameState.combo + 'x', 22, 116);
+    ctx.fillStyle = '#81C784'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'left'; ctx.fillText('Acc ' + currentState.accuracy + '%', 22, 100);
+    ctx.fillStyle = '#FFD700'; ctx.fillText('Combo ' + currentState.combo + 'x', 22, 116);
   }
   function renderStripeChase(ctx: CanvasRenderingContext2D, data: any, width: number, height: number) {
     const sf = SPATIAL_FREQUENCY_VALUES[spatialFrequency], sw = 40 / sf;
